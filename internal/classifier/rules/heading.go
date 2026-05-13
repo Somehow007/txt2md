@@ -3,7 +3,7 @@ package rules
 import (
 	"strings"
 
-	"github.com/user/txt2md/internal/scanner"
+	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
 // HeadingRule detects headings based on line length, position, and patterns.

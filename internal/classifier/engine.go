@@ -1,8 +1,8 @@
 package classifier
 
 import (
-	"github.com/user/txt2md/internal/classifier/rules"
-	"github.com/user/txt2md/internal/scanner"
+	"github.com/Somehow007/txt2md/internal/classifier/rules"
+	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
 // Engine runs classification rules on scanned lines.

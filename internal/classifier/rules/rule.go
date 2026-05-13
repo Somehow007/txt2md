@@ -1,7 +1,7 @@
 package rules
 
 import (
-	"github.com/user/txt2md/internal/scanner"
+	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
 // Rule defines the interface for classification rules.

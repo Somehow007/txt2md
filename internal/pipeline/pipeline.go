@@ -1,10 +1,10 @@
 package pipeline
 
 import (
-	"github.com/user/txt2md/internal/classifier"
-	"github.com/user/txt2md/internal/classifier/rules"
-	"github.com/user/txt2md/internal/renderer"
-	"github.com/user/txt2md/internal/scanner"
+	"github.com/Somehow007/txt2md/internal/classifier"
+	"github.com/Somehow007/txt2md/internal/classifier/rules"
+	"github.com/Somehow007/txt2md/internal/renderer"
+	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
 // Options configures the conversion pipeline.
