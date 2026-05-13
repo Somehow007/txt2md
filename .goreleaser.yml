@@ -1,6 +1,11 @@
 version: 2
 project_name: txt2md
 
+before:
+  hooks:
+    - go mod tidy
+    - go test ./... -v
+
 builds:
   - env:
       - CGO_ENABLED=0
@@ -12,8 +17,9 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -X github.com/user/txt2md/cmd/txt2md/commands.version={{.Version}}
+      - -s -w -X github.com/user/txt2md/cmd/txt2md/commands.version={{.Version}}
     binary: txt2md
+    mod_timestamp: '{{ .CommitTimestamp }}'
 
 archives:
   - format: tar.gz
@@ -42,3 +48,37 @@ changelog:
     exclude:
       - '^docs:'
       - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: user
+    name: txt2md
+  draft: false
+  prerelease: auto
+  header: |
+    ## 🎉 txt2md {{.Version}} Release
+
+    Automatic release of txt2md.
+
+    ### Installation
+
+    #### Homebrew (macOS/Linux)
+    ```bash
+    brew install user/tap/txt2md
+    ```
+
+    #### Manual Download
+    Download the appropriate binary for your platform from the assets below.
+
+    - **macOS (Apple Silicon)**: `txt2md_Darwin_arm64_{{ .Version }}.tar.gz`
+    - **macOS (Intel)**: `txt2md_Darwin_x86_64_{{ .Version }}.tar.gz`
+    - **Linux**: `txt2md_Linux_x86_64_{{ .Version }}.tar.gz`
+    - **Windows**: `txt2md_Windows_x86_64_{{ .Version }}.zip`
+
+    Extract and move to your PATH:
+    ```bash
+    tar -xzf txt2md_*.tar.gz
+    chmod +x txt2md
+    sudo mv txt2md /usr/local/bin/
+    ```

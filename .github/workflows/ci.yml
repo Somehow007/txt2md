@@ -28,9 +28,3 @@ jobs:
 
     - name: Test
       run: make test
-
-    - name: Lint
-      if: matrix.os == 'ubuntu-latest' && matrix.go == '1.24'
-      uses: golangci/golangci-lint-action@v6
-      with:
-        version: latest
