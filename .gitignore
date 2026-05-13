@@ -1,0 +1,26 @@
+# Binaries
+build/
+txt2md
+*.exe
+*.dmg
+
+# Test binaries
+*.test
+
+# Go
+vendor/
+go.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+cmd/debug/
+cmd/debug2/
