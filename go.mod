@@ -1,4 +1,4 @@
-module github.com/user/txt2md
+module github.com/Somehow007/txt2md
 
 go 1.24.5
 
