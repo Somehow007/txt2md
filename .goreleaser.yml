@@ -73,8 +73,9 @@ release:
 
     - **macOS (Apple Silicon)**: `txt2md_Darwin_arm64_{{ .Version }}.tar.gz`
     - **macOS (Intel)**: `txt2md_Darwin_x86_64_{{ .Version }}.tar.gz`
-    - **Linux**: `txt2md_Linux_x86_64_{{ .Version }}.tar.gz`
-    - **Windows**: `txt2md_Windows_x86_64_{{ .Version }}.zip`
+    - **Linux (x86_64)**: `txt2md_Linux_x86_64_{{ .Version }}.tar.gz`
+    - **Linux (ARM64)**: `txt2md_Linux_arm64_{{ .Version }}.tar.gz`
+    - **Windows (x86_64)**: `txt2md_Windows_x86_64_{{ .Version }}.zip`
 
     Extract and move to your PATH:
     ```bash

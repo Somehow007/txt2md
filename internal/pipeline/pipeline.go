@@ -26,6 +26,8 @@ func Convert(input string, opts Options) (string, error) {
 		&rules.ListRule{},
 		&rules.CodeBlockRule{},
 		&rules.BlockquoteRule{},
+		&rules.TableRule{},
+		&rules.HorizontalRule{},
 		&rules.ParagraphRule{},
 	)
 	blocks := engine.Classify(lines)

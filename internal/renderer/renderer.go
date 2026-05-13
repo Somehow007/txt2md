@@ -2,6 +2,7 @@ package renderer
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Somehow007/txt2md/internal/scanner"
@@ -18,9 +19,13 @@ func Render(blocks []scanner.Block, opts Options) string {
 	var sb strings.Builder
 
 	for i, block := range blocks {
+		// Add blank line between blocks based on style
 		if i > 0 {
-			// Add blank line between blocks
-			sb.WriteString("\n\n")
+			if opts.Style == "compact" {
+				sb.WriteString("\n")
+			} else {
+				sb.WriteString("\n\n")
+			}
 		}
 
 		switch block.Type {
@@ -34,6 +39,10 @@ func Render(blocks []scanner.Block, opts Options) string {
 			renderCodeBlock(&sb, block)
 		case scanner.BlockQuote:
 			renderBlockquote(&sb, block)
+		case scanner.BlockTable:
+			renderTable(&sb, block)
+		case scanner.BlockHorizontal:
+			renderHorizontal(&sb)
 		default:
 			// Fallback: render as paragraph
 			renderParagraph(&sb, block, opts)
@@ -72,8 +81,12 @@ func renderParagraph(sb *strings.Builder, block scanner.Block, opts Options) {
 	}
 	text := strings.Join(parts, " ")
 
+	// URL auto-detection
+	text = linkifyURLs(text)
+
+	// Pretty typography
 	if opts.Pretty {
-		text = beautifyTypography(text)
+		text = Beautify(text)
 	}
 
 	sb.WriteString(text)
@@ -141,6 +154,163 @@ func renderBlockquote(sb *strings.Builder, block scanner.Block) {
 	}
 }
 
+func renderTable(sb *strings.Builder, block scanner.Block) {
+	if len(block.Lines) < 2 {
+		return
+	}
+
+	// Parse rows
+	var rows [][]string
+	for _, line := range block.Lines {
+		text := strings.TrimSpace(line.Raw)
+		// Skip separator rows in output
+		if isSeparatorLine(text) {
+			continue
+		}
+		row := parseTableRow(text)
+		if len(row) > 0 {
+			rows = append(rows, row)
+		}
+	}
+
+	if len(rows) == 0 {
+		return
+	}
+
+	// Determine max columns
+	maxCols := 0
+	for _, row := range rows {
+		if len(row) > maxCols {
+			maxCols = len(row)
+		}
+	}
+
+	// Normalize all rows to maxCols
+	for i := range rows {
+		for len(rows[i]) < maxCols {
+			rows[i] = append(rows[i], "")
+		}
+	}
+
+	// Render header row
+	header := rows[0]
+	sb.WriteString("| ")
+	sb.WriteString(strings.Join(header, " | "))
+	sb.WriteString(" |")
+	sb.WriteString("\n")
+
+	// Render separator row
+	sb.WriteString("|")
+	for i := 0; i < maxCols; i++ {
+		sb.WriteString(" --- |")
+	}
+	sb.WriteString("\n")
+
+	// Render data rows
+	for i := 1; i < len(rows); i++ {
+		sb.WriteString("| ")
+		sb.WriteString(strings.Join(rows[i], " | "))
+		sb.WriteString(" |")
+		if i < len(rows)-1 {
+			sb.WriteString("\n")
+		}
+	}
+}
+
+func renderHorizontal(sb *strings.Builder) {
+	sb.WriteString("---")
+}
+
+func parseTableRow(raw string) []string {
+	// Split by '|' if present
+	if strings.Contains(raw, "|") {
+		parts := strings.Split(raw, "|")
+		cols := make([]string, 0, len(parts))
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				cols = append(cols, trimmed)
+			}
+		}
+		return cols
+	}
+
+	// Split by tab first
+	raw = strings.ReplaceAll(raw, "\t", "  ")
+
+	// Split by 2+ consecutive spaces
+	spaceRe := regexp.MustCompile(` {2,}`)
+	parts := spaceRe.Split(raw, -1)
+
+	cols := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			cols = append(cols, trimmed)
+		}
+	}
+
+	return cols
+}
+
+// isSeparatorLine checks if the line is a table separator like ---|---|--- or ---   ---   ---
+func isSeparatorLine(text string) bool {
+	trimmed := strings.TrimSpace(text)
+
+	// Check for | style separator: ---|---|---
+	if strings.Contains(trimmed, "|") {
+		parts := strings.Split(trimmed, "|")
+		for _, p := range parts {
+			if !regexp.MustCompile(`^[\s\-|:*_]+$`).MatchString(p) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Check for space-separated separator: ---   ---   ---
+	// Split by 2+ spaces
+	spaceRe := regexp.MustCompile(` {2,}`)
+	parts := spaceRe.Split(trimmed, -1)
+	if len(parts) >= 2 {
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if !regexp.MustCompile(`^[-*_]+$`).MatchString(p) {
+				return false
+			}
+		}
+		return true
+	}
+
+	return false
+}
+
+// URL regex patterns
+var (
+	urlPattern = regexp.MustCompile(`(https?://[^\s<]+)`)
+	wwwPattern = regexp.MustCompile(`\b(www\.[^\s<]+)`)
+)
+
+// linkifyURLs converts plain URLs to Markdown links.
+func linkifyURLs(text string) string {
+	// Handle https?:// URLs
+	text = urlPattern.ReplaceAllStringFunc(text, func(match string) string {
+		// Don't linkify if already in markdown link format
+		if strings.Contains(text, "]("+match+")") {
+			return match
+		}
+		return fmt.Sprintf("[%s](%s)", match, match)
+	})
+
+	// Handle www. URLs
+	text = wwwPattern.ReplaceAllStringFunc(text, func(match string) string {
+		// Don't linkify if already in markdown link format
+		return fmt.Sprintf("[%s](https://%s)", match, match)
+	})
+
+	return text
+}
+
 func normalizeListMarker(text string) string {
 	// Convert various list markers to standard "-"
 	prefixes := []string{"* ", "+ ", "• ", "· "}
@@ -152,8 +322,7 @@ func normalizeListMarker(text string) string {
 	return text
 }
 
+// beautifyTypography is deprecated, use Beautify from formatter.go instead.
 func beautifyTypography(text string) string {
-	// Basic Chinese/English spacing
-	// This is a simplified version; full implementation in formatter.go
 	return text
 }
