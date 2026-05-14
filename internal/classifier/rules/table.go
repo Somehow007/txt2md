@@ -7,7 +7,16 @@ import (
 	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
-// TableRule detects text tables separated by 2+ spaces or tabs.
+// unicodeTableRow represents a row in a Unicode box-drawing table.
+type unicodeTableRow struct {
+	rawLine  string
+	cells    []string
+	isBorder bool
+}
+
+// TableRule detects text tables in various formats:
+// 1. Unicode box-drawing tables (┌─┐│─├─┤└─┘)
+// 2. Simple space/tab separated tables
 type TableRule struct{}
 
 func (r *TableRule) Name() string {
@@ -15,6 +24,380 @@ func (r *TableRule) Name() string {
 }
 
 func (r *TableRule) Detect(lines []scanner.Line, idx int, opts Options) (*scanner.Block, int) {
+	// Try Unicode box-drawing table first (highest confidence, most distinctive)
+	if block, consumed := r.detectUnicodeTable(lines, idx); block != nil {
+		return block, consumed
+	}
+	// Try ASCII art table with +---+ borders
+	if block, consumed := r.detectASCIITable(lines, idx); block != nil {
+		return block, consumed
+	}
+	// Fall back to simple space/tab separated table
+	return r.detectSimpleTable(lines, idx)
+}
+
+// detectUnicodeTable detects tables using Unicode box-drawing characters.
+func (r *TableRule) detectUnicodeTable(lines []scanner.Line, idx int) (*scanner.Block, int) {
+	if idx >= len(lines) || lines[idx].IsEmpty {
+		return nil, 0
+	}
+
+	raw := lines[idx].Raw
+	if !containsBoxDrawing(raw) {
+		return nil, 0
+	}
+
+	// Must contain box-drawing characters that indicate a table
+	if !strings.ContainsAny(raw, "┌┐└┘├┤┬┴┼│") {
+		return nil, 0
+	}
+
+	// Collect all rows
+	var rows []unicodeTableRow
+	consumed := 0
+
+	for i := idx; i < len(lines); i++ {
+		line := lines[i].Raw
+		trimmed := strings.TrimSpace(line)
+
+		// Stop at bottom border
+		if isUnicodeBottomBorder(trimmed) {
+			consumed = i - idx + 1
+			break
+		}
+
+		// Stop if line doesn't look like part of the table
+		if !strings.ContainsAny(line, "│├┤┬┴┼") && !isUnicodeBorderLine(trimmed) {
+			if len(rows) > 0 {
+				break
+			}
+			return nil, 0
+		}
+
+		// Check if this is a border/separator line
+		if isUnicodeBorderLine(trimmed) {
+			rows = append(rows, unicodeTableRow{
+				rawLine:  line,
+				cells:    nil,
+				isBorder: true,
+			})
+			consumed = i - idx + 1
+			continue
+		}
+
+		// Extract cells from content row
+		cells := extractUnicodeCells(line)
+		if len(cells) >= 2 {
+			rows = append(rows, unicodeTableRow{
+				rawLine:  line,
+				cells:    cells,
+				isBorder: false,
+			})
+			consumed = i - idx + 1
+		} else {
+			break
+		}
+	}
+
+	// Filter to only content rows
+	var contentRows []unicodeTableRow
+	for _, row := range rows {
+		if !row.isBorder {
+			contentRows = append(contentRows, row)
+		}
+	}
+
+	if len(contentRows) < 1 {
+		return nil, 0
+	}
+
+	// Merge multi-line cells
+	mergedRows := mergeUnicodeRows(contentRows)
+
+	allLines := make([]scanner.Line, consumed)
+	copy(allLines, lines[idx:idx+consumed])
+
+	return &scanner.Block{
+		Type:       scanner.BlockTable,
+		Lines:      allLines,
+		Confidence: 0.95,
+		TableData: &scanner.TableData{
+			Rows: mergedRows,
+		},
+	}, consumed
+}
+
+// mergeUnicodeRows merges consecutive rows where cells continue across lines.
+// Only merges if the next row is clearly a continuation (not a new row).
+func mergeUnicodeRows(rows []unicodeTableRow) [][]string {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := [][]string{}
+	result = append(result, rows[0].cells)
+
+	for i := 1; i < len(rows); i++ {
+		prev := result[len(result)-1]
+		next := rows[i].cells
+
+		if shouldMergeCells(prev, next) {
+			// Merge cells
+			for j := range prev {
+				if j < len(next) && next[j] != "" {
+					prev[j] = strings.TrimSpace(prev[j] + next[j])
+				}
+			}
+		} else {
+			result = append(result, next)
+		}
+	}
+
+	return result
+}
+
+// shouldMergeCells checks if next row continues a cell from prev row.
+// Returns true only if BOTH rows have ONLY ONE non-empty cell in the SAME column.
+func shouldMergeCells(prev, next []string) bool {
+	if len(prev) != len(next) {
+		return false
+	}
+
+	// Find non-empty cells in next
+	nextNonEmptyCol := -1
+	nextNonEmptyCount := 0
+	for j, cell := range next {
+		if cell != "" {
+			nextNonEmptyCount++
+			if nextNonEmptyCount > 1 {
+				return false // More than one non-empty cell
+			}
+			nextNonEmptyCol = j
+		}
+	}
+
+	// No non-empty cells, not a continuation
+	if nextNonEmptyCol < 0 {
+		return false
+	}
+
+	// Check if prev also has ONLY ONE non-empty cell (in the same column)
+	prevNonEmptyCol := -1
+	prevNonEmptyCount := 0
+	for j, cell := range prev {
+		if cell != "" {
+			prevNonEmptyCount++
+			if prevNonEmptyCount > 1 {
+				return false // Prev has multiple non-empty cells (complete row)
+			}
+			prevNonEmptyCol = j
+		}
+	}
+
+	if prevNonEmptyCol != nextNonEmptyCol {
+		return false // Not the same column
+	}
+
+	// Check if prev cell's text looks "incomplete" (no ending punctuation)
+	return !endsWithPunctuation(prev[prevNonEmptyCol])
+}
+
+// endsWithPunctuation checks if the text ends with sentence-ending punctuation.
+func endsWithPunctuation(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	runes := []rune(s)
+	last := runes[len(runes)-1]
+	// Chinese/English sentence endings
+	return last == '。' || last == '！' || last == '？' ||
+		last == '.' || last == '!' || last == '?' ||
+		last == ';' || last == '；' || last == '：' || last == ':'
+}
+
+// extractUnicodeCells extracts cell text from a line by splitting on │ characters.
+// Skips the leading and trailing border characters.
+func extractUnicodeCells(line string) []string {
+	// Use rune-based splitting for correct Unicode handling
+	runes := []rune(line)
+	var cells []string
+	start := 0
+	firstCell := true
+
+	for i, r := range runes {
+		if r == '│' {
+			// Extract text between previous │ and this one
+			cell := strings.Trim(string(runes[start:i]), " ├┤┬┴┼┌┐└┘─━")
+			// Skip the very first cell (before first │) as it's the left border
+			if !firstCell {
+				cells = append(cells, cell)
+			}
+			firstCell = false
+			start = i + 1
+		}
+	}
+	// Handle text after last │ (the right border - skip it)
+	// if start < len(runes) {
+	// 	cell := strings.Trim(string(runes[start:]), " ├┤┬┴┼┌┐└┘─━")
+	// 	cells = append(cells, cell)
+	// }
+
+	return cells
+}
+
+// containsBoxDrawing checks if the string contains Unicode box-drawing characters (U+2500-U+257F).
+func containsBoxDrawing(s string) bool {
+	for _, r := range s {
+		if r >= 0x2500 && r <= 0x257F {
+			return true
+		}
+	}
+	return false
+}
+
+// isBoxDrawingRune checks if a rune is a Unicode box-drawing character (U+2500 to U+257F).
+func isBoxDrawingRune(r rune) bool {
+	return r >= 0x2500 && r <= 0x257F
+}
+
+// isUnicodeBorderLine checks if a line is a Unicode table border/separator.
+func isUnicodeBorderLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) == 0 {
+		return false
+	}
+	// Must contain box-drawing characters and dashes
+	return containsBoxDrawing(trimmed) && strings.ContainsAny(trimmed, "─━")
+}
+
+// isUnicodeBottomBorder checks if a line is a Unicode table bottom border.
+func isUnicodeBottomBorder(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	// Check for └ and ┘ which indicate bottom border
+	return strings.Contains(trimmed, "└") || strings.Contains(trimmed, "┘")
+}
+
+// detectASCIITable detects ASCII art tables with +---+ borders.
+func (r *TableRule) detectASCIITable(lines []scanner.Line, idx int) (*scanner.Block, int) {
+	if idx >= len(lines) || lines[idx].IsEmpty {
+		return nil, 0
+	}
+
+	raw := lines[idx].Raw
+	trimmed := strings.TrimSpace(raw)
+
+	// Must look like an ASCII table border (starts/ends with +, contains -)
+	if !strings.HasPrefix(trimmed, "+") || !strings.HasSuffix(trimmed, "+") {
+		return nil, 0
+	}
+	if !strings.Contains(trimmed, "-") {
+		return nil, 0
+	}
+
+	// Now collect the table rows
+	var tableLines []scanner.Line
+	tableLines = append(tableLines, lines[idx]) // border line
+	consumed := 1
+
+	// Look for content rows until the next border
+	for i := idx + 1; i < len(lines); i++ {
+		line := lines[i].Raw
+		trimmedLine := strings.TrimSpace(line)
+
+		// Skip empty lines
+		if trimmedLine == "" {
+			break
+		}
+
+		// Check if this is a border line
+		if strings.HasPrefix(trimmedLine, "+") && strings.HasSuffix(trimmedLine, "+") && strings.Contains(trimmedLine, "-") {
+			tableLines = append(tableLines, lines[i])
+			consumed++
+			// Check if this is the bottom border (same structure as top border)
+			if i+1 >= len(lines) || lines[i+1].IsEmpty {
+				consumed = i - idx + 1
+				break
+			}
+			continue
+		}
+
+		// Check if this is a content row (contains |)
+		if strings.Contains(line, "|") {
+			tableLines = append(tableLines, lines[i])
+			consumed++
+			continue
+		}
+
+		// If we get here, line doesn't belong to table
+		break
+	}
+
+	if len(tableLines) < 3 { // Need at least top border, content, bottom border
+		return nil, 0
+	}
+
+	// Parse rows from the table lines
+	var rows [][]string
+	for _, line := range tableLines {
+		text := strings.TrimSpace(line.Raw)
+		// Skip border lines
+		if strings.HasPrefix(text, "+") {
+			continue
+		}
+		// Parse content row
+		row := parseASCIICells(text)
+		if len(row) >= 2 {
+			rows = append(rows, row)
+		}
+	}
+
+	if len(rows) < 1 {
+		return nil, 0
+	}
+
+	allLines := make([]scanner.Line, consumed)
+	copy(allLines, lines[idx:idx+consumed])
+
+	return &scanner.Block{
+		Type:       scanner.BlockTable,
+		Lines:      allLines,
+		Confidence: 0.9,
+		TableData: &scanner.TableData{
+			Rows: rows,
+		},
+	}, consumed
+}
+
+// parseASCIICells extracts cell content from an ASCII table row.
+// Finds | characters in the line and extracts text between them.
+func parseASCIICells(raw string) []string {
+	var cells []string
+	runes := []rune(raw)
+
+	start := -1
+	for i, r := range runes {
+		if r == '|' {
+			if start >= 0 {
+				// Extract text between previous | and this one
+				cell := strings.TrimSpace(string(runes[start+1 : i]))
+				cells = append(cells, cell)
+			}
+			start = i
+		}
+	}
+	// Handle text after last |
+	if start >= 0 && start < len(runes)-1 {
+		cell := strings.TrimSpace(string(runes[start+1:]))
+		if cell != "" {
+			cells = append(cells, cell)
+		}
+	}
+
+	return cells
+}
+
+// detectSimpleTable is the original table detection logic for space/tab separated tables.
+func (r *TableRule) detectSimpleTable(lines []scanner.Line, idx int) (*scanner.Block, int) {
 	if idx >= len(lines) {
 		return nil, 0
 	}
@@ -86,6 +469,10 @@ func (r *TableRule) Detect(lines []scanner.Line, idx int, opts Options) (*scanne
 
 // parseRow splits a line into table columns by 2+ spaces, tabs, or '|'.
 func (r *TableRule) parseRow(raw string) []string {
+	// Handle Unicode box-drawing vertical line character
+	if strings.Contains(raw, "│") {
+		return parseUnicodeTableRow(raw)
+	}
 	// Split by '|' if present
 	if strings.Contains(raw, "|") {
 		parts := strings.Split(raw, "|")
@@ -117,16 +504,28 @@ func (r *TableRule) parseRow(raw string) []string {
 	return cols
 }
 
-// isSeparatorRow checks if a line is a Markdown table separator (e.g., ---|---|---)
+// parseUnicodeTableRow splits a line by Unicode box-drawing vertical line │.
+func parseUnicodeTableRow(raw string) []string {
+	parts := strings.Split(raw, "│")
+	cols := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			cols = append(cols, trimmed)
+		}
+	}
+	return cols
+}
+
+// isSeparatorRow checks if a line is a table separator.
 func (r *TableRule) isSeparatorRow(raw string, expectedCols int) bool {
 	// Must contain at least one '-' or '|'
 	if !strings.ContainsAny(raw, "-|") {
 		return false
 	}
 
-	// Common patterns: "---|---|---" or "---  ---  ---" or "--- | --- | ---"
-	colCount := 0
 	hasDash := false
+	colCount := 0
 
 	// Count columns by '|' or double spaces
 	if strings.Contains(raw, "|") {
@@ -145,7 +544,6 @@ func (r *TableRule) isSeparatorRow(raw string, expectedCols int) bool {
 		spaceRe := regexp.MustCompile(` {2,}`)
 		parts := spaceRe.Split(raw, -1)
 
-		colCount = 0
 		for _, p := range parts {
 			trimmed := strings.TrimSpace(p)
 			if trimmed != "" {

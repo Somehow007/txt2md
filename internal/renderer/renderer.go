@@ -56,20 +56,39 @@ func renderHeading(sb *strings.Builder, block scanner.Block) {
 	if len(block.Lines) == 0 {
 		return
 	}
-	text := strings.TrimSpace(block.Lines[0].Raw)
-	// Remove existing markers
-	text = strings.TrimPrefix(text, "# ")
-	text = strings.TrimPrefix(text, "## ")
-	text = strings.TrimPrefix(text, "### ")
-	// Remove comment symbols
-	text = strings.TrimPrefix(text, "// ")
-	text = strings.TrimPrefix(text, "/// ")
-	text = strings.TrimSpace(text)
+	rawText := strings.TrimSpace(block.Lines[0].Raw)
 
-	// Determine level based on confidence/context
-	level := 2 // default
-	if block.Confidence > 0.8 {
-		level = 1
+	// Detect heading level from original text (count leading # characters)
+	level := 0
+	for _, r := range rawText {
+		if r == '#' {
+			level++
+		} else {
+			break
+		}
+	}
+
+	// If markdown-style heading (## Title), use detected level
+	// Otherwise, clean the text and use default level
+	var text string
+	if level > 0 && level <= 6 && len(rawText) > level && rawText[level] == ' ' {
+		// Markdown-style heading: use detected level
+		text = strings.TrimSpace(rawText[level+1:])
+	} else {
+		// Not markdown-style, clean prefixes
+		text = rawText
+		text = strings.TrimPrefix(text, "# ")
+		text = strings.TrimPrefix(text, "## ")
+		text = strings.TrimPrefix(text, "### ")
+		text = strings.TrimPrefix(text, "// ")
+		text = strings.TrimPrefix(text, "/// ")
+		text = strings.TrimSpace(text)
+
+		// Default level based on confidence
+		level = 2
+		if block.Confidence > 0.8 {
+			level = 1
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("%s %s", strings.Repeat("#", level), text))
@@ -159,6 +178,13 @@ func renderBlockquote(sb *strings.Builder, block scanner.Block) {
 }
 
 func renderTable(sb *strings.Builder, block scanner.Block) {
+	// If TableData is populated (new path), use it directly
+	if block.TableData != nil && len(block.TableData.Rows) > 0 {
+		renderTableFromData(sb, block.TableData.Rows)
+		return
+	}
+
+	// Fallback: original line-based parsing (for backward compatibility)
 	if len(block.Lines) < 2 {
 		return
 	}
@@ -181,6 +207,7 @@ func renderTable(sb *strings.Builder, block scanner.Block) {
 		return
 	}
 
+	// Normalize columns
 	// Determine max columns
 	maxCols := 0
 	for _, row := range rows {
@@ -190,6 +217,28 @@ func renderTable(sb *strings.Builder, block scanner.Block) {
 	}
 
 	// Normalize all rows to maxCols
+	for i := range rows {
+		for len(rows[i]) < maxCols {
+			rows[i] = append(rows[i], "")
+		}
+	}
+
+	renderTableFromData(sb, rows)
+}
+
+// renderTableFromData renders table rows that have already been parsed.
+func renderTableFromData(sb *strings.Builder, rows [][]string) {
+	if len(rows) == 0 {
+		return
+	}
+
+	// Normalize columns
+	maxCols := 0
+	for _, row := range rows {
+		if len(row) > maxCols {
+			maxCols = len(row)
+		}
+	}
 	for i := range rows {
 		for len(rows[i]) < maxCols {
 			rows[i] = append(rows[i], "")
@@ -226,6 +275,10 @@ func renderHorizontal(sb *strings.Builder) {
 }
 
 func parseTableRow(raw string) []string {
+	// Handle Unicode box-drawing vertical line character
+	if strings.Contains(raw, "│") {
+		return parseUnicodeTableRow(raw)
+	}
 	// Split by '|' if present
 	if strings.Contains(raw, "|") {
 		parts := strings.Split(raw, "|")
@@ -257,9 +310,31 @@ func parseTableRow(raw string) []string {
 	return cols
 }
 
+// parseUnicodeTableRow splits a line by Unicode box-drawing vertical line │.
+func parseUnicodeTableRow(raw string) []string {
+	parts := strings.Split(raw, "│")
+	cols := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			cols = append(cols, trimmed)
+		}
+	}
+	return cols
+}
+
 // isSeparatorLine checks if the line is a table separator like ---|---|--- or ---   ---   ---
+// Also handles Unicode box-drawing separators like ├─┼─┤.
 func isSeparatorLine(text string) bool {
 	trimmed := strings.TrimSpace(text)
+
+	// Check for Unicode box-drawing separator (├─┼─┤, ┝━┿━┥, etc.)
+	if hasBoxDrawing(trimmed) {
+		// Must contain dash characters (─, ━, etc.)
+		if strings.ContainsAny(trimmed, "─━") {
+			return true
+		}
+	}
 
 	// Check for | style separator: ---|---|---
 	if strings.Contains(trimmed, "|") {
@@ -286,6 +361,16 @@ func isSeparatorLine(text string) bool {
 		return true
 	}
 
+	return false
+}
+
+// hasBoxDrawing checks if the string contains Unicode box-drawing characters (U+2500-U+257F).
+func hasBoxDrawing(s string) bool {
+	for _, r := range s {
+		if r >= 0x2500 && r <= 0x257F {
+			return true
+		}
+	}
 	return false
 }
 

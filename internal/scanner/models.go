@@ -23,11 +23,17 @@ type Line struct {
 	IsEmpty bool   // whether line is blank
 }
 
+// TableData holds pre-parsed table structure for rendering.
+type TableData struct {
+	Rows [][]string // each row is a slice of cell strings
+}
+
 // Block represents a contiguous group of lines with the same type.
 type Block struct {
-	Type     BlockType
-	Lines    []Line
+	Type       BlockType
+	Lines      []Line
 	Confidence float64 // classification confidence (0.0-1.0)
+	TableData  *TableData // populated when Type == BlockTable
 }
 
 // NewLine creates a Line from a raw string.

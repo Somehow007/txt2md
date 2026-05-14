@@ -28,25 +28,40 @@ func (r *HeadingRule) Detect(lines []scanner.Line, idx int, opts Options) (*scan
 
 	// Heading indicators
 	isHeading := false
+	confidence := 0.8
 
-	// All caps short line (likely a title)
-	if text == strings.ToUpper(text) && len(text) > 3 && len(text) < 50 {
-		isHeading = true
+	// Markdown-style heading: "# Title", "## Title", etc.
+	if strings.HasPrefix(text, "#") {
+		level := 0
+		for _, r := range text {
+			if r == '#' {
+				level++
+			} else {
+				break
+			}
+		}
+		if level >= 1 && level <= 6 && len(text) > level && text[level] == ' ' {
+			isHeading = true
+			confidence = 1.0
+		}
 	}
 
-	// Line ends with colon (Chinese/English) - disabled to reduce false positives
-	// if (strings.HasSuffix(text, ":") || strings.HasSuffix(text, "：")) && len(text) < 15 {
-	// 	isHeading = true
-	// }
+	// Comment-style heading: "// Title" or "/// Title"
+	if !isHeading && (strings.HasPrefix(text, "// ") || strings.HasPrefix(text, "/// ")) {
+		isHeading = true
+		confidence = 0.95
+	}
 
-	// Next line is empty and line is very short (likely a heading)
-	// Disabled to reduce false positives
-	// if idx+1 < len(lines) && lines[idx+1].IsEmpty && len(text) < 20 {
-	// 	isHeading = true
-	// }
+	// All caps short line (likely a title)
+	// Must have at least some letters/Chinese characters, not just symbols
+	if !isHeading && text == strings.ToUpper(text) && len(text) > 3 && len(text) < 50 {
+		if hasLetterOrChinese(text) {
+			isHeading = true
+		}
+	}
 
 	// Numbered heading like "1. Title" or "一、Title"
-	if isNumberedHeading(text) {
+	if !isHeading && isNumberedHeading(text) {
 		isHeading = true
 	}
 
@@ -60,7 +75,7 @@ func (r *HeadingRule) Detect(lines []scanner.Line, idx int, opts Options) (*scan
 	return &scanner.Block{
 		Type:       scanner.BlockHeading,
 		Lines:      []scanner.Line{line},
-		Confidence: 0.8,
+		Confidence: confidence,
 	}, 1
 }
 
@@ -83,4 +98,19 @@ func determineHeadingLevel(text string, indent int) int {
 		return 2
 	}
 	return 3 + indent/4
+}
+
+// hasLetterOrChinese checks if the text contains at least one letter or Chinese character.
+func hasLetterOrChinese(s string) bool {
+	for _, r := range s {
+		// Check for ASCII letters
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return true
+		}
+		// Check for Chinese characters (CJK Unified Ideographs range)
+		if r >= 0x4E00 && r <= 0x9FFF {
+			return true
+		}
+	}
+	return false
 }
