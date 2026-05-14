@@ -61,6 +61,10 @@ func renderHeading(sb *strings.Builder, block scanner.Block) {
 	text = strings.TrimPrefix(text, "# ")
 	text = strings.TrimPrefix(text, "## ")
 	text = strings.TrimPrefix(text, "### ")
+	// Remove comment symbols
+	text = strings.TrimPrefix(text, "// ")
+	text = strings.TrimPrefix(text, "/// ")
+	text = strings.TrimSpace(text)
 
 	// Determine level based on confidence/context
 	level := 2 // default
