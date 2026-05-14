@@ -24,3 +24,8 @@ Thumbs.db
 # Debug
 cmd/debug/
 cmd/debug2/
+
+# Test files
+test*.txt
+test*.md
+txt2md_test
