@@ -6,7 +6,6 @@ import (
 	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
-// CodeBlockRule detects code blocks based on code-like patterns.
 type CodeBlockRule struct{}
 
 func (r *CodeBlockRule) Name() string {
@@ -21,26 +20,36 @@ func (r *CodeBlockRule) Detect(lines []scanner.Line, idx int, opts Options) (*sc
 		return nil, 0
 	}
 
-	// Check for fenced code blocks
-	if strings.HasPrefix(text, "```") {
-		// Find closing fence
+	if strings.HasPrefix(text, "```") || strings.HasPrefix(text, "~~~") {
+		fence := "```"
+		if strings.HasPrefix(text, "~~~") {
+			fence = "~~~"
+		}
+
 		consumed := 1
+		foundClose := false
 		for idx+consumed < len(lines) {
-			if strings.HasPrefix(strings.TrimSpace(lines[idx+consumed].Raw), "```") {
+			nextTrimmed := strings.TrimSpace(lines[idx+consumed].Raw)
+			if strings.HasPrefix(nextTrimmed, fence) {
 				consumed++
+				foundClose = true
 				break
 			}
+
+			if !foundClose && lines[idx+consumed].IsEmpty {
+				break
+			}
+
 			consumed++
 		}
-		codeLines := lines[idx : idx+consumed]
+
 		return &scanner.Block{
 			Type:       scanner.BlockCode,
-			Lines:      codeLines,
+			Lines:      lines[idx : idx+consumed],
 			Confidence: 1.0,
 		}, consumed
 	}
 
-	// Detect indented code block (4+ spaces or tab)
 	if line.Indent >= 4 || strings.HasPrefix(line.Raw, "\t") {
 		codeLines := []scanner.Line{line}
 		consumed := 1
@@ -65,20 +74,36 @@ func (r *CodeBlockRule) Detect(lines []scanner.Line, idx int, opts Options) (*sc
 		}, consumed
 	}
 
-	// Detect code-like content (high density of special chars, keywords)
-	if looksLikeCode(text) && idx+1 < len(lines) && !lines[idx+1].IsEmpty {
-		// Check if next few lines also look like code
+	if looksLikeCode(text) && idx+1 < len(lines) {
 		codeLines := []scanner.Line{line}
 		consumed := 1
 		codeScore := 1
-		for idx+consumed < len(lines) && consumed < 20 {
+		blankStreak := 0
+		for idx+consumed < len(lines) && consumed < 40 {
 			next := lines[idx+consumed]
 			if next.IsEmpty {
+				blankStreak++
+				if blankStreak > 1 {
+					break
+				}
+				if idx+consumed+1 < len(lines) {
+					nextNextText := strings.TrimSpace(lines[idx+consumed+1].Raw)
+					if looksLikeCode(nextNextText) || isCodeContinuation(nextNextText, line.Indent) {
+						codeLines = append(codeLines, next)
+						consumed++
+						continue
+					}
+				}
 				break
 			}
-			if looksLikeCode(strings.TrimSpace(next.Raw)) {
+			blankStreak = 0
+			nextText := strings.TrimSpace(next.Raw)
+			if looksLikeCode(nextText) {
 				codeLines = append(codeLines, next)
 				codeScore++
+				consumed++
+			} else if codeScore >= 2 && isCodeContinuation(nextText, line.Indent) {
+				codeLines = append(codeLines, next)
 				consumed++
 			} else {
 				break
@@ -93,7 +118,137 @@ func (r *CodeBlockRule) Detect(lines []scanner.Line, idx int, opts Options) (*sc
 		}
 	}
 
+	if isDiagramStart(text) {
+		codeLines := []scanner.Line{line}
+		consumed := 1
+		for idx+consumed < len(lines) {
+			next := lines[idx+consumed]
+			if next.IsEmpty {
+				break
+			}
+			nextText := strings.TrimSpace(next.Raw)
+			if isDiagramLine(nextText) {
+				codeLines = append(codeLines, next)
+				consumed++
+			} else {
+				break
+			}
+		}
+		if len(codeLines) >= 2 {
+			return &scanner.Block{
+				Type:       scanner.BlockCode,
+				Lines:      codeLines,
+				Confidence: 0.8,
+			}, consumed
+		}
+	}
+
+	if looksLikeDiagramHeader(text) && idx+1 < len(lines) {
+		nextText := strings.TrimSpace(lines[idx+1].Raw)
+		if isDiagramLine(nextText) {
+			codeLines := []scanner.Line{line}
+			consumed := 1
+			for idx+consumed < len(lines) {
+				next := lines[idx+consumed]
+				if next.IsEmpty {
+					break
+				}
+				nextText := strings.TrimSpace(next.Raw)
+				if isDiagramLine(nextText) || looksLikeDiagramHeader(nextText) {
+					codeLines = append(codeLines, next)
+					consumed++
+				} else {
+					break
+				}
+			}
+			if len(codeLines) >= 2 {
+				return &scanner.Block{
+					Type:       scanner.BlockCode,
+					Lines:      codeLines,
+					Confidence: 0.8,
+				}, consumed
+			}
+		}
+	}
+
 	return nil, 0
+}
+
+func isCodeContinuation(text string, baseIndent int) bool {
+	if len(text) == 0 {
+		return false
+	}
+	if strings.HasSuffix(text, ",") || strings.HasSuffix(text, ";") ||
+		strings.HasSuffix(text, "(") || strings.HasSuffix(text, "{") ||
+		strings.HasSuffix(text, "[") || strings.HasSuffix(text, "||") ||
+		strings.HasSuffix(text, "&&") || strings.HasSuffix(text, "+") ||
+		strings.HasSuffix(text, "->") || strings.HasSuffix(text, "=>") {
+		return true
+	}
+	if strings.HasPrefix(text, ",") || strings.HasPrefix(text, ")") ||
+		strings.HasPrefix(text, "}") || strings.HasPrefix(text, "]") ||
+		strings.HasPrefix(text, ".") || strings.HasPrefix(text, "::") {
+		return true
+	}
+	return false
+}
+
+func isDiagramStart(text string) bool {
+	if strings.Contains(text, "──>") || strings.Contains(text, "<──") ||
+		strings.Contains(text, "─>") || strings.Contains(text, "<─") {
+		if !strings.ContainsAny(text, "┌┐└┘├┤┬┴┼") {
+			return true
+		}
+	}
+	if strings.Contains(text, "│") && (strings.Contains(text, "──>") || strings.Contains(text, "<──")) {
+		if !strings.ContainsAny(text, "┌┐└┘├┤┬┴┼") {
+			return true
+		}
+	}
+	return false
+}
+
+func isDiagramLine(text string) bool {
+	if strings.Contains(text, "│") && !strings.ContainsAny(text, "┌┐└┘├┤┬┴┼") {
+		return true
+	}
+	if isDiagramStart(text) {
+		return true
+	}
+	return false
+}
+
+func looksLikeDiagramHeader(text string) bool {
+	if len(text) < 10 {
+		return false
+	}
+	for _, r := range text {
+		if r >= 0x2500 && r <= 0x257F {
+			return false
+		}
+	}
+	maxSpaceRun := 0
+	spaceRun := 0
+	for _, c := range text {
+		if c == ' ' {
+			spaceRun++
+			if spaceRun > maxSpaceRun {
+				maxSpaceRun = spaceRun
+			}
+		} else {
+			spaceRun = 0
+		}
+	}
+	if maxSpaceRun >= 5 {
+		parts := strings.Fields(text)
+		if len(parts) >= 2 && len(parts) <= 6 {
+			spaceCount := strings.Count(text, " ")
+			if float64(spaceCount)/float64(len(text)) > 0.3 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func looksLikeCode(text string) bool {
@@ -101,25 +256,49 @@ func looksLikeCode(text string) bool {
 		return false
 	}
 
-	// Count code-like characters
+	trimmed := strings.TrimSpace(text)
+
+	if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "///") ||
+		strings.HasPrefix(trimmed, "# ") || strings.HasPrefix(trimmed, "#!") {
+		return true
+	}
+
+	if trimmed == "{" || trimmed == "}" || trimmed == "{}" ||
+		trimmed == "(" || trimmed == ")" || trimmed == "()" ||
+		trimmed == "[" || trimmed == "]" || trimmed == "[]" {
+		return true
+	}
+
+	if trimmed == "}" || trimmed == "};" || trimmed == "}," {
+		return true
+	}
+
 	codeChars := 0
 	for _, c := range text {
 		if c == '{' || c == '}' || c == '(' || c == ')' || c == '[' || c == ']' ||
 			c == '=' || c == ';' || c == '<' || c == '>' || c == '/' || c == '*' ||
-			c == '&' || c == '|' || c == '!' || c == '#' || c == '@' || c == '$' {
+			c == '&' || c == '|' || c == '!' || c == '#' || c == '@' || c == '$' ||
+			c == '"' || c == '\'' || c == ':' || c == '%' || c == '+' || c == '-' {
 			codeChars++
 		}
 	}
 
-	// High ratio of code characters
 	ratio := float64(codeChars) / float64(len(text))
-	if ratio > 0.15 && len(text) > 10 {
+	if ratio > 0.2 && len(text) > 5 {
+		return true
+	}
+	if ratio > 0.1 && len(text) > 10 {
 		return true
 	}
 
-	// Common programming keywords
 	keywords := []string{"func ", "var ", "const ", "import ", "package ", "def ", "class ",
-		"return ", "if ", "for ", "while ", "else ", "try ", "catch ", "public ", "private "}
+		"return ", "if ", "for ", "while ", "else ", "try ", "catch ", "public ", "private ",
+		"void ", "int ", "String ", "boolean ", "@Override", "@Autowired", "@PostMapping",
+		"new ", "this.", "extends ", "implements ", "@GetMapping", "@RequestBody",
+		"redisTemplate.", "userService.", "JSON.", "UserHolder.", "Result.",
+		"TimeUnit.", "StringRedisTemplate", "HttpServletRequest", "HttpServletResponse",
+		"HandlerInterceptor", "Map.of(", "UUID.randomUUID",
+	}
 	for _, kw := range keywords {
 		if strings.Contains(text, kw) {
 			return true

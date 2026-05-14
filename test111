@@ -1,0 +1,69 @@
+  ## 🎉 txt2md v0.3.0 — 表格识别全面优化
+                                        
+  ### ✨ 新增功能                       
+                                        
+  #### 表格识别增强                     
+  - **Unicode 框线表格识别**：支持      
+  `┌─┐│─├─┤└─┘` 等 Unicode 框线字符表格 
+  - **ASCII 艺术表格识别**：支持
+  `+---+---+` 风格的 ASCII 艺术表格     
+  - **多行单元格合并**：自动合并跨行的单
+  元格内容（如 "每次请求续" + "期" →    
+  "每次请求续期"）                    
+  - **预解析表格数据结构**：新增        
+  `TableData` 结构体，避免渲染器重复解析
+  
+  #### 标题检测增强                     
+  - `# Title` — Markdown              
+  样式标题（#、##、###）                
+  - `// Title` / `/// Title` —
+  注释样式标题                          
+  - `INTRODUCTION` — 全大写标题       
+  - `一、标题` — 中文编号标题           
+                                        
+  ### 🐛 问题修复                       
+  - 修复标题检测误判 `+---+`            
+  为标题的问题                          
+  - 修复 `extractUnicodeCells`        
+  字节索引与 rune 索引不匹配的问题      
+  - 修复 `isSeparatorRow` 中未定义变量
+  `hasDash`、`colCount` 的问题          
+                                      
+  ### 🔧 改进                           
+  - 优化表格渲染逻辑，优先使用预解析数据
+  - 改进 ASCII 艺术表格与 Markdown      
+  表格的区分逻辑                        
+  - 添加 `.gitignore` 规则，排除测试文件
+                                        
+  ### 安装                            
+                                        
+  #### Homebrew (macOS/Linux)           
+  ```bash
+  brew install Somehow007/tap/txt2md    
+                                        
+  手动下载                              
+                                        
+  下载对应平台的二进制文件：            
+  - macOS (Apple Silicon):            
+  txt2md_Darwin_arm64_v0.3.0.tar.gz     
+  - macOS (Intel):                 
+  txt2md_Darwin_x86_64_v0.3.0.tar.gz    
+  - Linux (x86_64):                     
+  txt2md_Linux_x86_64_v0.3.0.tar.gz
+  - Linux (ARM64):                      
+  txt2md_Linux_arm64_v0.3.0.tar.gz    
+  - Windows (x86_64):                   
+  txt2md_Windows_x86_64_v0.3.0.zip    
+                                        
+  解压后将二进制文件移动到 PATH：     
+  tar -xzf txt2md_*.tar.gz              
+  chmod +x txt2md                     
+  sudo mv txt2md /usr/local/bin/        
+                                      
+  使用示例                              
+                                        
+  # 转换包含 Unicode 表格的文本         
+  txt2md convert input.txt              
+                                      
+  # 输出美化排版                        
+  txt2md convert input.txt --pretty

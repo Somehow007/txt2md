@@ -100,19 +100,32 @@ func (r *TableRule) detectUnicodeTable(lines []scanner.Line, idx int) (*scanner.
 	}
 
 	// Filter to only content rows
-	var contentRows []unicodeTableRow
+	var segments [][]unicodeTableRow
+	var currentSegment []unicodeTableRow
+
 	for _, row := range rows {
-		if !row.isBorder {
-			contentRows = append(contentRows, row)
+		if row.isBorder {
+			if len(currentSegment) > 0 {
+				segments = append(segments, currentSegment)
+				currentSegment = nil
+			}
+			continue
 		}
+		currentSegment = append(currentSegment, row)
+	}
+	if len(currentSegment) > 0 {
+		segments = append(segments, currentSegment)
 	}
 
-	if len(contentRows) < 1 {
+	if len(segments) == 0 {
 		return nil, 0
 	}
 
-	// Merge multi-line cells
-	mergedRows := mergeUnicodeRows(contentRows)
+	var allMergedRows [][]string
+	for _, seg := range segments {
+		merged := mergeSegmentRows(seg)
+		allMergedRows = append(allMergedRows, merged...)
+	}
 
 	allLines := make([]scanner.Line, consumed)
 	copy(allLines, lines[idx:idx+consumed])
@@ -122,14 +135,39 @@ func (r *TableRule) detectUnicodeTable(lines []scanner.Line, idx int) (*scanner.
 		Lines:      allLines,
 		Confidence: 0.95,
 		TableData: &scanner.TableData{
-			Rows: mergedRows,
+			Rows: allMergedRows,
 		},
 	}, consumed
 }
 
 // mergeUnicodeRows merges consecutive rows where cells continue across lines.
 // Only merges if the next row is clearly a continuation (not a new row).
-func mergeUnicodeRows(rows []unicodeTableRow) [][]string {
+func mergeSegmentRows(rows []unicodeTableRow) [][]string {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := [][]string{rows[0].cells}
+
+	for i := 1; i < len(rows); i++ {
+		prev := result[len(result)-1]
+		next := rows[i].cells
+
+		if shouldMergeCells(prev, next) {
+			for j := range prev {
+				if j < len(next) && next[j] != "" {
+					prev[j] = strings.TrimSpace(prev[j] + next[j])
+				}
+			}
+		} else {
+			result = append(result, next)
+		}
+	}
+
+	return result
+}
+
+func mergeUnicodeRows(rows []unicodeTableRow, hasSeparator bool) [][]string {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -137,17 +175,25 @@ func mergeUnicodeRows(rows []unicodeTableRow) [][]string {
 	result := [][]string{}
 	result = append(result, rows[0].cells)
 
-	for i := 1; i < len(rows); i++ {
-		prev := result[len(result)-1]
+	startIdx := 1
+	if hasSeparator && len(rows) > 1 {
+		result = append(result, rows[1].cells)
+		startIdx = 2
+	}
+
+	for i := startIdx; i < len(rows); i++ {
 		next := rows[i].cells
 
-		if shouldMergeCells(prev, next) {
-			// Merge cells
-			for j := range prev {
-				if j < len(next) && next[j] != "" {
-					prev[j] = strings.TrimSpace(prev[j] + next[j])
+		if i+1 < len(rows) && shouldMergeCells(next, rows[i+1].cells) {
+			merged := make([]string, len(next))
+			copy(merged, next)
+			for j := range merged {
+				if j < len(rows[i+1].cells) && rows[i+1].cells[j] != "" {
+					merged[j] = strings.TrimSpace(merged[j] + rows[i+1].cells[j])
 				}
 			}
+			result = append(result, merged)
+			i++
 		} else {
 			result = append(result, next)
 		}
@@ -163,60 +209,78 @@ func shouldMergeCells(prev, next []string) bool {
 		return false
 	}
 
-	// Find non-empty cells in next
-	nextNonEmptyCol := -1
-	nextNonEmptyCount := 0
-	for j, cell := range next {
+	nextNonEmpty := 0
+	for _, cell := range next {
 		if cell != "" {
-			nextNonEmptyCount++
-			if nextNonEmptyCount > 1 {
-				return false // More than one non-empty cell
-			}
-			nextNonEmptyCol = j
+			nextNonEmpty++
 		}
 	}
 
-	// No non-empty cells, not a continuation
-	if nextNonEmptyCol < 0 {
+	if nextNonEmpty == 0 {
 		return false
 	}
 
-	// Check if prev also has ONLY ONE non-empty cell (in the same column)
-	prevNonEmptyCol := -1
-	prevNonEmptyCount := 0
-	for j, cell := range prev {
+	prevNonEmpty := 0
+	for _, cell := range prev {
 		if cell != "" {
-			prevNonEmptyCount++
-			if prevNonEmptyCount > 1 {
-				return false // Prev has multiple non-empty cells (complete row)
-			}
-			prevNonEmptyCol = j
+			prevNonEmpty++
 		}
 	}
 
-	if prevNonEmptyCol != nextNonEmptyCol {
-		return false // Not the same column
-	}
-
-	// Check if prev cell's text looks "incomplete" (no ending punctuation)
-	return !endsWithPunctuation(prev[prevNonEmptyCol])
-}
-
-// endsWithPunctuation checks if the text ends with sentence-ending punctuation.
-func endsWithPunctuation(s string) bool {
-	if len(s) == 0 {
+	if prevNonEmpty == 0 {
 		return false
 	}
-	runes := []rune(s)
-	last := runes[len(runes)-1]
-	// Chinese/English sentence endings
-	return last == '。' || last == '！' || last == '？' ||
-		last == '.' || last == '!' || last == '?' ||
-		last == ';' || last == '；' || last == '：' || last == ':'
+
+	if nextNonEmpty > prevNonEmpty {
+		return false
+	}
+
+	shortContinuationCount := 0
+	for j, nextCell := range next {
+		if nextCell == "" || j >= len(prev) {
+			continue
+		}
+		prevCell := prev[j]
+		if prevCell == "" {
+			continue
+		}
+		if !endsWithPunctuation(prevCell) && runeLen(nextCell) <= 5 {
+			shortContinuationCount++
+		}
+	}
+
+	if shortContinuationCount > 0 && float64(shortContinuationCount)/float64(nextNonEmpty) >= 0.5 {
+		return true
+	}
+
+	allIncomplete := true
+	incompleteCount := 0
+	for j, nextCell := range next {
+		if nextCell == "" || j >= len(prev) {
+			continue
+		}
+		prevCell := prev[j]
+		if prevCell == "" {
+			continue
+		}
+		if !endsWithPunctuation(prevCell) {
+			incompleteCount++
+		} else {
+			allIncomplete = false
+		}
+	}
+
+	if incompleteCount == 0 {
+		return false
+	}
+
+	if nextNonEmpty < prevNonEmpty {
+		return true
+	}
+
+	return allIncomplete
 }
 
-// extractUnicodeCells extracts cell text from a line by splitting on │ characters.
-// Skips the leading and trailing border characters.
 func extractUnicodeCells(line string) []string {
 	// Use rune-based splitting for correct Unicode handling
 	runes := []rune(line)
@@ -515,6 +579,10 @@ func parseUnicodeTableRow(raw string) []string {
 		}
 	}
 	return cols
+}
+
+func runeLen(s string) int {
+	return len([]rune(s))
 }
 
 // isSeparatorRow checks if a line is a table separator.

@@ -6,7 +6,6 @@ import (
 	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
-// BlockquoteRule detects blockquotes (lines starting with >).
 type BlockquoteRule struct{}
 
 func (r *BlockquoteRule) Name() string {
@@ -21,12 +20,10 @@ func (r *BlockquoteRule) Detect(lines []scanner.Line, idx int, opts Options) (*s
 		return nil, 0
 	}
 
-	// Check if line starts with > (blockquote marker)
 	if !strings.HasPrefix(text, ">") {
 		return nil, 0
 	}
 
-	// Collect consecutive blockquote lines
 	quoteLines := []scanner.Line{line}
 	consumed := 1
 
@@ -37,7 +34,6 @@ func (r *BlockquoteRule) Detect(lines []scanner.Line, idx int, opts Options) (*s
 			quoteLines = append(quoteLines, next)
 			consumed++
 		} else if next.IsEmpty {
-			// Check if next non-empty line is also a blockquote
 			isFollowedByQuote := false
 			for j := idx + consumed + 1; j < len(lines); j++ {
 				if lines[j].IsEmpty {
@@ -64,4 +60,16 @@ func (r *BlockquoteRule) Detect(lines []scanner.Line, idx int, opts Options) (*s
 		Lines:      quoteLines,
 		Confidence: 0.95,
 	}, consumed
+}
+
+func countBlockquoteDepth(text string) int {
+	depth := 0
+	trimmed := strings.TrimSpace(text)
+	for len(trimmed) > 0 && trimmed[0] == '>' {
+		depth++
+		trimmed = strings.TrimPrefix(trimmed, ">")
+		trimmed = strings.TrimPrefix(trimmed, " ")
+		trimmed = strings.TrimSpace(trimmed)
+	}
+	return depth
 }

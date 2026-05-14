@@ -5,13 +5,11 @@ import (
 	"github.com/Somehow007/txt2md/internal/scanner"
 )
 
-// Engine runs classification rules on scanned lines.
 type Engine struct {
-	rules  []rules.Rule
-	opts   rules.Options
+	rules []rules.Rule
+	opts  rules.Options
 }
 
-// NewEngine creates a classifier engine with the given rules.
 func NewEngine(opts rules.Options, ruleList ...rules.Rule) *Engine {
 	return &Engine{
 		rules: ruleList,
@@ -19,13 +17,11 @@ func NewEngine(opts rules.Options, ruleList ...rules.Rule) *Engine {
 	}
 }
 
-// Classify processes lines and returns classified blocks.
 func (e *Engine) Classify(lines []scanner.Line) []scanner.Block {
 	var blocks []scanner.Block
 	idx := 0
 
 	for idx < len(lines) {
-		// Skip empty lines between blocks
 		if lines[idx].IsEmpty {
 			idx++
 			continue
@@ -43,7 +39,6 @@ func (e *Engine) Classify(lines []scanner.Line) []scanner.Block {
 		}
 
 		if !matched {
-			// Default: treat as paragraph
 			paraLines := []scanner.Line{lines[idx]}
 			j := idx + 1
 			for j < len(lines) && !lines[j].IsEmpty {

@@ -1,0 +1,176 @@
+📖 详细讲解                        
+
+  配合 Redis 做登录校验的核心思路是：服务端生成 token，存到 Redis（token →       
+  用户信息），客户端每次请求带 token，服务端查 Redis 
+  校验。这套方案本质是"服务端有状态"的会话管理，和 JWT 的无状态方案形成对比。    
+                  
+  ---
+  完整流程
+                                                                                 
+  1. 登录——生成 token 并存入 Redis
+                                                                                 
+  客户端                       服务端                       Redis
+    │                            │                           │                   
+    │  POST /login {phone,pwd}   │                           │                   
+    │ ──────────────────────────>│                           │                   
+    │                            │ 验证账号密码                │                 
+    │                            │ 生成随机token (UUID)        │                 
+    │                            │ ──── SET token userJson ──>│                  
+    │                            │     EX 30分钟              │                  
+    │                            │     (首次登录30分钟有效期)    │               
+    │  {token, userInfo}         │                           │                   
+    │ <──────────────────────────│                           │                   
+                                                                                 
+  关键代码：                                                                     
+                                                                                 
+  @PostMapping("/login")                                                         
+  public Result login(@RequestBody LoginDTO dto) {                               
+      // 1. 校验账号密码（查 DB）                                                
+      User user = userService.verify(dto.getPhone(), dto.getPassword());         
+                                                                                 
+      // 2. 生成随机 token（用 UUID，不要自增 ID 暴露规律）                      
+      String token = UUID.randomUUID().toString().replace("-", "");              
+                                                                                 
+      // 3. 用户信息序列化存 Redis，设置过期时间                                 
+      String userJson = JSON.toJSONString(user);                                 
+      redisTemplate.opsForValue().set(                                           
+          "login:token:" + token,                                                
+          userJson,                                                              
+          30, TimeUnit.MINUTES                                                   
+      );                                                                         
+                                                                                 
+      // 4. 返回 token                                                           
+      return Result.ok(Map.of("token", token, "user", user));                    
+  }                                                                              
+                  
+  2. 请求校验——拦截器/过滤器验 token                                             
+                  
+  客户端                       拦截器                      Redis                 
+    │                            │                           │                   
+    │  GET /api/order/list       │                           │                   
+    │  Header: Authorization     │                           │                   
+    │  Bearer <token>            │                           │                   
+    │ ──────────────────────────>│                           │                   
+    │                            │ 从Header提取token           │                 
+    │                            │ ──── GET login:token:xxx ─>│                  
+    │                            │ <──── userJson ────────────│                  
+    │                            │ 刷新过期时间 (续期)          │                
+    │                            │ ──── EXPIRE 30分钟 ───────>│                  
+    │                            │ 存入 ThreadLocal           │                  
+    │  <正常放行/返回401>         │                           │                  
+                                                                                 
+  关键代码：                                                                     
+                                                                                 
+  public class LoginInterceptor implements HandlerInterceptor {                  
+                                                                                 
+      @Autowired                                                                 
+      private StringRedisTemplate redisTemplate;                                 
+                                                                                 
+      @Override                                                                  
+      public boolean preHandle(HttpServletRequest request,                       
+                               HttpServletResponse response,                     
+                               Object handler) {                                 
+          // 1. 提取 token                                                       
+          String token = request.getHeader("Authorization");                     
+          if (token == null || !token.startsWith("Bearer ")) {                   
+              response.setStatus(401);                                           
+              return false;                                                      
+          }                                                                      
+          token = token.substring(7);                                            
+                                                                                 
+          // 2. 查 Redis                                                         
+          String userJson = redisTemplate.opsForValue()                          
+              .get("login:token:" + token);                                      
+          if (userJson == null) {                                                
+              response.setStatus(401);                                           
+              return false;                                                      
+          }                                                                      
+                                                                                 
+          // 3. 续期（每次请求刷新过期时间）                                     
+          String key = "login:token:" + token;                                   
+          redisTemplate.expire(key, 30, TimeUnit.MINUTES);                       
+                                                                                 
+          // 4. 存入 ThreadLocal，方便业务层使用                                 
+          UserHolder.set(JSON.parseObject(userJson, User.class));                
+                                                                                 
+          return true;                                                           
+      }                                                                          
+                                                                                 
+      @Override                                                                  
+      public void afterCompletion(...) {                                         
+          UserHolder.remove();  // 防止内存泄漏                                  
+      }                                                                          
+  }                                                                              
+                                                                                 
+  3. 续期（续签）策略                                                            
+                                                                                 
+  这是项目里容易暴露功底的地方，有三种主流方案：                                 
+                  
+  ┌─────────────┬─────────────────────────────────┬──────────────────────────┐   
+  │    方案     │              做法               │          优缺点          │
+  ├─────────────┼─────────────────────────────────┼──────────────────────────┤   
+  │ 每次请求续  │ 请求进来就 EXPIRE 重置为 30     │ 实现简单，高频请求会频繁 │
+  │ 期          │ 分钟                            │ 写 Redis                 │   
+  ├─────────────┼─────────────────────────────────┼──────────────────────────┤   
+  │ 固定窗口续  │ 只在剩余 TTL <                  │ 减少 Redis               │
+  │ 期          │ 阈值时才续（如剩不到 10         │ 写操作，平衡性能         │   
+  │             │ 分钟时续）                      │                          │
+  ├─────────────┼─────────────────────────────────┼──────────────────────────┤   
+  │ 双 token    │ accessToken（短期）+ refreshTok │ 更安全，accessToken      │
+  │ 机制        │ en（长期），accessToken 过期用  │ 即使泄露窗口期短         │   
+  │             │ refreshToken 换新               │                          │
+  └─────────────┴─────────────────────────────────┴──────────────────────────┘   
+                  
+  推荐固定窗口续期的代码实现：                                                   
+   
+  Long ttl = redisTemplate.getExpire(key, TimeUnit.MINUTES);                     
+  if (ttl != null && ttl < 10) {  // 剩余不到10分钟才续                          
+      redisTemplate.expire(key, 30, TimeUnit.MINUTES);                           
+  }                                                                              
+                                                                                 
+  4. 登出                                                                        
+                                                                                 
+  客户端                       服务端                       Redis                
+    │  POST /logout             │                           │                    
+    │  Header: Authorization    │                           │                    
+    │ ──────────────────────────>│                           │                   
+    │                            │ 提取token                  │                  
+    │                            │ ──── DEL login:token:xxx ─>│                  
+    │  {code:200}               │                           │                    
+    │ <──────────────────────────│                           │                   
+                                                                                 
+  就是删 Key，简单直接：                                                         
+                                                                                 
+  redisTemplate.delete("login:token:" + token);                                  
+                                                                                 
+  5. 额外安全措施                                                                
+                                                                                 
+  - 异地登录互踢：用 user:login:token:{userId} 存当前有效 token，新登录时删旧    
+  token           
+  - 密码修改后全局下线：用户改密码时，用 SCAN 批量清理该用户所有 token           
+  - 敏感操作二次验证：关键操作（支付、改密码）单独校验，不单纯依赖 token 存在    
+                                                                                 
+  ---                                                                            
+  和 JWT 方案的对比                                                              
+                                                                                 
+  ┌──────────────┬────────────────────────┬──────────────────────────────────┐
+  │     维度     │        Redis +         │          JWT（无状态）           │   
+  │              │    Token（有状态）     │                                  │   
+  ├──────────────┼────────────────────────┼──────────────────────────────────┤   
+  │ 服务端存储   │ 需要 Redis 存 session  │ 不需要，JWT 自带信息             │   
+  ├──────────────┼────────────────────────┼──────────────────────────────────┤   
+  │ 主动失效     │ ✅ 直接删              │ ❌                               │   
+  │              │ Key，即时生效          │ 需额外搞黑名单（又回到有状态）   │   
+  ├──────────────┼────────────────────────┼──────────────────────────────────┤   
+  │ 水平扩展     │ Redis 共享，天然支持   │ 天然支持（无共享状态）           │
+  ├──────────────┼────────────────────────┼──────────────────────────────────┤   
+  │ 网络开销     │ 每次请求要查 Redis     │ 不查任何存储，仅验签名           │
+  ├──────────────┼────────────────────────┼──────────────────────────────────┤   
+  │ token 体积   │ UUID 几十字节          │ JWT 通常几百字节甚至更大         │
+  ├──────────────┼────────────────────────┼──────────────────────────────────┤   
+  │ 用户信息变更 │ 即时生效（改 Redis     │ 需等旧 token 过期，或加版本号    │
+  │              │ 就行）                 │                                  │   
+  └──────────────┴────────────────────────┴──────────────────────────────────┘
+
+  选型建议：一定要做"即时踢人、即时失效"的，用 Redis+Token；对网络延迟和 Redis   
+  压力敏感的纯只读场景，考虑 JWT。
