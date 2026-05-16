@@ -1,0 +1,43 @@
+## Quick Start Guide
+
+### Step 1: Install the tool
+
+```
+curl -sSL https://example.com/install.sh | bash
+```
+
+### Step 2: Initialize configuration
+
+```
+txt2md config --init
+```
+
+### Step 3: Convert your first file
+
+```
+txt2md convert document.txt
+```
+
+## Advanced Usage
+
+For batch processing, use the --recursive flag:
+
+```
+txt2md convert ./docs/ --recursive
+```
+
+### To customize output style:
+
+```
+txt2md convert input.txt --style compact --pretty
+```
+
+## Troubleshooting
+
+## Common issues:
+
+1. File not found - check the file path
+2. Permission denied - ensure read access to input file
+3. Encoding errors - the tool expects UTF-8 input
+
+For more help, visit [https://example.com/docs](https://example.com/docs)

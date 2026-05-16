@@ -2,7 +2,7 @@ BINARY_NAME=txt2md
 VERSION?=dev
 BUILD_DIR=build
 
-.PHONY: build test lint clean cross-build install
+.PHONY: build test lint clean cross-build install race
 
 build:
 	go build -ldflags "-X github.com/Somehow007/txt2md/cmd/txt2md/commands.version=$(VERSION)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/txt2md
@@ -25,3 +25,6 @@ cross-build:
 
 install:
 	go install -ldflags "-X github.com/Somehow007/txt2md/cmd/txt2md/commands.version=$(VERSION)" ./cmd/txt2md
+
+race:
+	go test -race ./...

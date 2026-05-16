@@ -2,6 +2,6 @@
 
 This is a paragraph under the introduction.
 
-Getting Started
+## Getting Started
 
 Follow these steps to begin.

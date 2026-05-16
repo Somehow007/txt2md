@@ -191,6 +191,12 @@ func isListItemText(text string) bool {
 	if (first == '-' || first == '*' || first == '+' || first == '•') && len(text) > 1 && (text[1] == ' ' || text[1] == '\t') {
 		return true
 	}
+	if isChineseNumberedListItemText(text) {
+		return true
+	}
+	if isSubNumberedListItemText(text) {
+		return true
+	}
 	if len(text) >= 3 {
 		for i := 0; i < len(text) && i < 5; i++ {
 			if text[i] >= '0' && text[i] <= '9' {
@@ -199,6 +205,48 @@ func isListItemText(text string) bool {
 			if i > 0 && (text[i] == '.' || text[i] == ')') && i+1 < len(text) && (text[i+1] == ' ' || text[i+1] == '\t') {
 				return true
 			}
+			break
+		}
+	}
+	return false
+}
+
+func isChineseNumberedListItemText(text string) bool {
+	runes := []rune(text)
+	if len(runes) < 3 {
+		return false
+	}
+	i := 0
+	for i < len(runes) && i < 5 {
+		if runes[i] >= '0' && runes[i] <= '9' {
+			i++
+			continue
+		}
+		if runes[i] == '、' && i > 0 && i+1 < len(runes) {
+			return true
+		}
+		break
+	}
+	return false
+}
+
+func isSubNumberedListItemText(text string) bool {
+	runes := []rune(text)
+	dotCount := 0
+	digitBefore := false
+	digitAfter := false
+	for i := 0; i < len(runes) && i < 10; i++ {
+		if runes[i] >= '0' && runes[i] <= '9' {
+			if dotCount == 0 {
+				digitBefore = true
+			} else if dotCount == 1 {
+				digitAfter = true
+			}
+		} else if runes[i] == '.' && digitBefore {
+			dotCount++
+		} else if (runes[i] == ' ' || runes[i] == '\t') && digitBefore && digitAfter && dotCount == 1 {
+			return true
+		} else if !(runes[i] >= '0' && runes[i] <= '9') && runes[i] != '.' {
 			break
 		}
 	}
@@ -217,6 +265,41 @@ func indexOfListMarkerEnd(text string) int {
 		}
 		return idx
 	}
+
+	if isChineseNumberedListItemText(text) {
+		runes := []rune(text)
+		idx := 0
+		for idx < len(runes) && idx < 5 {
+			if runes[idx] >= '0' && runes[idx] <= '9' {
+				idx++
+				continue
+			}
+			if runes[idx] == '、' {
+				idx++
+				return len(string(runes[:idx]))
+			}
+			break
+		}
+	}
+
+	if isSubNumberedListItemText(text) {
+		runes := []rune(text)
+		idx := 0
+		for idx < len(runes) && idx < 10 {
+			if (runes[idx] >= '0' && runes[idx] <= '9') || runes[idx] == '.' {
+				idx++
+				continue
+			}
+			if runes[idx] == ' ' || runes[idx] == '\t' {
+				for idx < len(runes) && (runes[idx] == ' ' || runes[idx] == '\t') {
+					idx++
+				}
+				return len(string(runes[:idx]))
+			}
+			break
+		}
+	}
+
 	for i := 0; i < len(text) && i < 5; i++ {
 		if text[i] >= '0' && text[i] <= '9' {
 			continue
@@ -566,5 +649,23 @@ func normalizeListMarker(text string) string {
 			return "- " + strings.TrimPrefix(text, p)
 		}
 	}
+
+	if isChineseNumberedListItemText(text) {
+		runes := []rune(text)
+		i := 0
+		for i < len(runes) && i < 5 {
+			if runes[i] >= '0' && runes[i] <= '9' {
+				i++
+				continue
+			}
+			if runes[i] == '、' {
+				numPart := string(runes[:i])
+				restPart := string(runes[i+1:])
+				return numPart + ". " + restPart
+			}
+			break
+		}
+	}
+
 	return text
 }

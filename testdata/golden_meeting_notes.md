@@ -1,0 +1,23 @@
+Meeting Notes - Q4 Planning
+
+Date: 2024-01-15 Attendees: Alice, Bob, Charlie
+
+## Agenda
+
+1. Review Q3 results
+2. Set Q4 targets
+3. Resource allocation
+
+## Discussion Points
+
+Revenue target was exceeded by 15%. The team performed well in all regions.
+
+## Action Items
+
+- Alice: Prepare budget proposal by Jan 20
+- Bob: Schedule follow-up meetings
+- Charlie: Update project timeline
+
+---
+
+Next meeting: 2024-01-22

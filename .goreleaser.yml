@@ -35,6 +35,86 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
       {{- if .Mips }}_{{ .Mips }}{{ end }}
       {{- if not (eq .Version "dev") }}_{{ .Version }}{{ end }}
+    files:
+      - man/txt2md.1
+      - completions/*
+
+manpages:
+  - man/txt2md.1
+
+completions:
+  bash:
+    - txt2md
+  zsh:
+    - txt2md
+  fish:
+    - txt2md
+  powershell:
+    - txt2md
+
+nfpms:
+  - id: txt2md
+    package_name: txt2md
+    file_name_template: >-
+      {{ .PackageName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- if .Mips }}_{{ .Mips }}{{ end }}
+      {{- if not (eq .Version "dev") }}_{{ .Version }}{{ end }}
+    builds:
+      - txt2md
+    homepage: https://github.com/Somehow007/txt2md
+    maintainer: Somehow007
+    description: Convert plain text to well-formatted Markdown
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    contents:
+      - src: man/txt2md.1
+        dst: /usr/share/man/man1/txt2md.1
+        file_info:
+          mode: 0644
+      - src: completions/txt2md.bash
+        dst: /usr/share/bash-completion/completions/txt2md
+        file_info:
+          mode: 0644
+      - src: completions/txt2md.zsh
+        dst: /usr/share/zsh/vendor-completions/_txt2md
+        file_info:
+          mode: 0644
+      - src: completions/txt2md.fish
+        dst: /usr/share/fish/vendor_completions.d/txt2md.fish
+        file_info:
+          mode: 0644
+
+brews:
+  - name: txt2md
+    tap:
+      owner: Somehow007
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    url_template: "https://github.com/Somehow007/txt2md/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: https://github.com/Somehow007/txt2md
+    description: Convert plain text to well-formatted Markdown
+    license: MIT
+    install: |
+      bin.install "txt2md"
+      man1.install "man/txt2md.1"
+      bash_completion.install "completions/txt2md.bash"
+      zsh_completion.install "completions/txt2md.zsh" => "_txt2md"
+      fish_completion.install "completions/txt2md.fish"
+    test: |
+      system "#{bin}/txt2md --version"
 
 checksum:
   name_template: 'checksums.txt'
@@ -65,7 +145,7 @@ release:
 
     #### Homebrew (macOS/Linux)
     ```bash
-    brew install user/tap/txt2md
+    brew install Somehow007/tap/txt2md
     ```
 
     #### Manual Download

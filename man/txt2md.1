@@ -1,0 +1,99 @@
+.TH TXT2MD 1 "May 2026" "txt2md" "User Commands"
+.SH NAME
+txt2md \- convert plain text to Markdown
+.SH SYNOPSIS
+.B txt2md convert
+.I input-file
+.RI [ flags ]
+.br
+.B txt2md config
+.RB [ \-\-init ]
+.SH DESCRIPTION
+.B txt2md
+is a command-line tool that automatically converts plain text files to well-formatted Markdown.
+It intelligently detects headings, paragraphs, lists, code blocks, blockquotes, tables, and horizontal rules.
+.SH COMMANDS
+.TP
+.B convert \fIinput-file\fP
+Convert a text file to Markdown.
+.TP
+.B config
+Manage configuration.
+Use
+.B \-\-init
+to create a default configuration file.
+.SH "CONVERT FLAGS"
+.TP
+.BR \-o ", " \-\-output \ \fIstring\fP
+Output file path (default: \fI<input-name>.md\fP in current directory).
+.TP
+.BR \-\-tab-width \ \fIint\fP
+Tab width for indentation detection (default 4).
+.TP
+.BR \-\-pretty
+Enable typography beautification (CJK-Latin spacing).
+.TP
+.BR \-\-style \ \fIstring\fP
+Output style:
+.I compact
+or
+.IR spacious
+(default "spacious").
+.TP
+.BR \-\-diff
+Show diff between input and output.
+.TP
+.BR \-\-force
+Overwrite existing output file.
+.TP
+.BR \-r ", " \-\-recursive
+Recursively convert all .txt files in directory.
+.TP
+.BR \-\-stdout
+Write output to stdout instead of file.
+.TP
+.BR \-\-rules \ \fIstring\fP
+Path to custom rules file (YAML/TOML).
+.SH CONFIGURATION
+The tool reads configuration from
+.B .txt2md.yaml
+in the current directory, falling back to
+.BR $HOME/.txt2md.yaml .
+.SH EXAMPLES
+Convert a file to Markdown:
+.br
+.B txt2md convert notes.txt
+.PP
+Convert and write to a specific output file:
+.br
+.B txt2md convert notes.txt \-o output.md
+.PP
+Convert with compact style and typography beautification:
+.br
+.B txt2md convert notes.txt \-\-style compact \-\-pretty
+.PP
+Show a diff of the changes:
+.br
+.B txt2md convert notes.txt \-\-diff
+.PP
+Recursively convert all .txt files in a directory:
+.br
+.B txt2md convert ./my-notes/ \-r
+.PP
+Write output to stdout:
+.br
+.B txt2md convert notes.txt \-\-stdout
+.PP
+Create a default configuration file:
+.br
+.B txt2md config \-\-init
+.SH FILES
+.TP
+.B .txt2md.yaml
+Project-level configuration file, located in the current directory.
+.TP
+.B $HOME/.txt2md.yaml
+User-level configuration file, used when no project-level config is found.
+.SH "SEE ALSO"
+.BR pandoc (1),
+.BR markdown (1)

@@ -273,6 +273,10 @@ func looksLikeCode(text string) bool {
 		return true
 	}
 
+	if looksLikeShellCommand(text) {
+		return true
+	}
+
 	codeChars := 0
 	for _, c := range text {
 		if c == '{' || c == '}' || c == '(' || c == ')' || c == '[' || c == ']' ||
@@ -303,6 +307,33 @@ func looksLikeCode(text string) bool {
 		if strings.Contains(text, kw) {
 			return true
 		}
+	}
+
+	return false
+}
+
+func looksLikeShellCommand(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if len(trimmed) == 0 {
+		return false
+	}
+
+	shellPrefixes := []string{
+		"sudo ", "export ", "source ", "vim ", "nano ",
+		"wget ", "curl ", "tar ", "mkdir ", "chmod ",
+		"chown ", "cp ", "mv ", "rm ", "ls ", "cat ",
+		"echo ", "cd ", "apt ", "yum ", "brew ",
+		"pip ", "npm ", "go ", "git ", "docker ",
+		"make ", "cargo ", "gcc ", "python ",
+	}
+	for _, prefix := range shellPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+
+	if strings.HasPrefix(trimmed, "./") || strings.HasPrefix(trimmed, "~/") {
+		return true
 	}
 
 	return false

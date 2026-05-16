@@ -1,0 +1,33 @@
+## Configuration Guide
+
+This guide explains how to configure the application.
+
+### Environment Variables
+
+| Name      | Default   | Description                |
+|-----------|-----------|----------------------------|
+| PORT      | 8080      | Server port                |
+| HOST      | localhost | Server host                |
+| LOG_LEVEL | info      | Logging level              |
+| DB_URL    | none      | Database connection string |
+| CACHE_TTL | 3600      | Cache TTL in seconds       |
+
+## Example .env file:
+
+## PORT=3000
+
+## HOST=0.0.0.0
+
+LOG_LEVEL=debug DB_URL=postgres://user:pass@localhost:5432/mydb CACHE_TTL=1800
+
+## Command Line Options
+
+| -h, --help    | Show help message     |
+|---------------|-----------------------|
+| -v, --version | Show version          |
+| -c, --config  | Path to config file   |
+| -p, --port    | Override default port |
+
+## Notes
+
+All settings can be overridden via command line flags. Config file values take precedence over environment variables.

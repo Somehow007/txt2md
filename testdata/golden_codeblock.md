@@ -1,4 +1,4 @@
-Code Example
+## Code Example
 
 ```go
 func main() {

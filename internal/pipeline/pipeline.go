@@ -34,6 +34,8 @@ func Convert(input string, opts Options) (string, error) {
 func ConvertWithDiff(input string, opts Options) (*Result, error) {
 	lines := scanner.Scan(input)
 
+	lines = preprocessLines(lines)
+
 	mdRatio := calcMarkdownRatio(lines)
 
 	if mdRatio > 0.4 {
@@ -313,4 +315,48 @@ func fixUnclosedCodeBlocks(text string) string {
 	}
 
 	return text
+}
+
+func preprocessLines(lines []scanner.Line) []scanner.Line {
+	result := make([]scanner.Line, 0, len(lines))
+	for i, line := range lines {
+		if isOrphanNumber(line, lines, i) {
+			continue
+		}
+		result = append(result, line)
+	}
+	return result
+}
+
+func isOrphanNumber(line scanner.Line, lines []scanner.Line, idx int) bool {
+	if line.IsEmpty {
+		return false
+	}
+
+	trimmed := strings.TrimSpace(line.Raw)
+	if len(trimmed) == 0 {
+		return false
+	}
+
+	if !isOnlyDigits(trimmed) {
+		return false
+	}
+
+	hasBlankBefore := idx == 0 || lines[idx-1].IsEmpty
+	hasBlankAfter := idx+1 >= len(lines) || lines[idx+1].IsEmpty
+
+	if hasBlankBefore && hasBlankAfter {
+		return true
+	}
+
+	return false
+}
+
+func isOnlyDigits(text string) bool {
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return len(text) > 0 && len(text) <= 3
 }

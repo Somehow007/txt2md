@@ -143,21 +143,21 @@ txt2md convert ./docs/ --recursive
 - [x] 跨平台编译验证（macOS / Linux / Windows）
 - [x] 错误处理：文件不存在、无权限、编码问题等
 
-### P1 — 重要（v0.2.0）
+### P1 — 重要（v0.2.0）✅
 
-- [ ] 表格检测与转换
-- [ ] 水平分割线检测
-- [ ] 中英文排版美化（`--pretty` 开关）
-- [ ] 链接/URL 自动识别
-- [ ] `--style` 参数（`compact` / `spacious`）
-- [ ] STDIN 管道输入模式
-- [ ] 配置文件支持（`.txt2md.yaml`）
+- [x] 表格检测与转换
+- [x] 水平分割线检测
+- [x] 中英文排版美化（`--pretty` 开关）
+- [x] 链接/URL 自动识别
+- [x] `--style` 参数（`compact` / `spacious`）
+- [x] STDIN 管道输入模式
+- [x] 配置文件支持（`.txt2md.yaml`）
 
-### P2 — 增强（v0.3.0）
+### P2 — 增强（v0.3.0）✅
 
-- [ ] 批量转换模式（`--recursive`）
-- [ ] NLP 段落分割增强
-- [ ] 自定义规则文件支持（YAML/TOML）
+- [x] 批量转换模式（`--recursive`）
+- [x] NLP 段落分割增强
+- [x] 自定义规则文件支持（YAML/TOML）
 - [ ] 增量转换模式（文件变化 watch）
 
 ### P3 — 扩展（后续）
@@ -193,14 +193,14 @@ txt2md convert ./docs/ --recursive
   - 管道输入模式
   - 发布 v0.2.0
 
-第 4 周: 质量打磨 + 生态
+第 4 周: 质量打磨 + 生态 ✅
   - 大量真实文本测试，积累 golden files
   - 错误处理完善
   - help 文档 / man page
   - GoReleaser 配置
   - Homebrew tap 创建
 
-第 5-6 周: P2 功能
+第 5-6 周: P2 功能 ✅
   - 批处理、自定义规则、NLP 段落分割
   - 性能优化（并发处理多文件）
   - 发布 v0.3.0
@@ -239,11 +239,11 @@ $ cat meeting.txt | txt2md convert -
 
 ## 八、项目初始化检查清单
 
-- [ ] `go mod init github.com/<user>/txt2md`
-- [ ] 目录结构创建
-- [ ] `main.go` + cobra 骨架
-- [ ] `Makefile`：`build` / `test` / `lint` / `cross-build`
-- [ ] `.github/workflows/ci.yml`：多 OS 矩阵
-- [ ] `.goreleaser.yml`
-- [ ] 第一条分类规则 + golden file 测试
-- [ ] README.md（使用说明）
+- [x] `go mod init github.com/<user>/txt2md`
+- [x] 目录结构创建
+- [x] `main.go` + cobra 骨架
+- [x] `Makefile`：`build` / `test` / `lint` / `cross-build`
+- [x] `.github/workflows/ci.yml`：多 OS 矩阵
+- [x] `.goreleaser.yml`
+- [x] 第一条分类规则 + golden file 测试
+- [x] README.md（使用说明）

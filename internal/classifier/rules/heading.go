@@ -2,6 +2,7 @@ package rules
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/Somehow007/txt2md/internal/scanner"
 )
@@ -24,11 +25,19 @@ func (r *HeadingRule) Detect(lines []scanner.Line, idx int, opts Options) (*scan
 		return nil, 0
 	}
 
+	if isLikelyCodeComment(text, lines, idx) {
+		return nil, 0
+	}
+
 	if isListItem(text, line.Indent) {
 		return nil, 0
 	}
 
-	if isLikelyCodeComment(text, lines, idx) {
+	if looksLikeShellCommand(text) {
+		return nil, 0
+	}
+
+	if endsWithSentencePunctuation(text) {
 		return nil, 0
 	}
 
@@ -53,7 +62,7 @@ func (r *HeadingRule) Detect(lines []scanner.Line, idx int, opts Options) (*scan
 	}
 
 	if !isHeading && (strings.HasPrefix(text, "// ") || strings.HasPrefix(text, "/// ")) {
-		if !isInCodeContext(lines, idx) {
+		if !isInCodeContext(lines, idx) && !isNearCodeContent(lines, idx) {
 			isHeading = true
 			confidence = 0.95
 			if strings.HasPrefix(text, "/// ") {
@@ -73,7 +82,26 @@ func (r *HeadingRule) Detect(lines []scanner.Line, idx int, opts Options) (*scan
 
 	if !isHeading && isNumberedHeading(text) {
 		isHeading = true
+		confidence = 0.9
 		level = determineHeadingLevel(text, line.Indent)
+	}
+
+	if !isHeading && isStepPattern(text) {
+		isHeading = true
+		confidence = 0.85
+		level = 3
+	}
+
+	if !isHeading && isNumberedSectionTitle(text) {
+		isHeading = true
+		confidence = 0.8
+		level = 2
+	}
+
+	if !isHeading && isContextualHeading(text, lines, idx) {
+		isHeading = true
+		confidence = 0.75
+		level = determineContextualHeadingLevel(text, line.Indent)
 	}
 
 	if !isHeading {
@@ -86,6 +114,171 @@ func (r *HeadingRule) Detect(lines []scanner.Line, idx int, opts Options) (*scan
 		Confidence:   confidence,
 		HeadingLevel: level,
 	}, 1
+}
+
+func endsWithSentencePunctuation(text string) bool {
+	if len(text) == 0 {
+		return false
+	}
+	runes := []rune(text)
+	last := runes[len(runes)-1]
+	return last == '。' || last == '！' || last == '？' ||
+		last == '.' || last == '!' || last == '?'
+}
+
+func isContextualHeading(text string, lines []scanner.Line, idx int) bool {
+	if len(text) < 2 || len(text) > 60 {
+		return false
+	}
+
+	if isListItem(text, lines[idx].Indent) {
+		return false
+	}
+
+	if !hasLetterOrChinese(text) {
+		return false
+	}
+
+	if looksLikeCode(text) {
+		return false
+	}
+
+	if isCommandLine(text) {
+		return false
+	}
+
+	if looksLikeShellCommand(text) {
+		return false
+	}
+
+	if strings.HasPrefix(text, "@") {
+		return false
+	}
+
+	if endsWithSentencePunctuation(text) {
+		return false
+	}
+
+	if isPartOfParagraph(lines, idx) {
+		return false
+	}
+
+	if isOnlyDigits(text) {
+		return false
+	}
+
+	hasBlankAfter := idx+1 < len(lines) && lines[idx+1].IsEmpty
+	hasContentAfter := false
+	for i := idx + 1; i < len(lines) && i <= idx+3; i++ {
+		if !lines[i].IsEmpty {
+			hasContentAfter = true
+			break
+		}
+	}
+
+	hasBlankBefore := idx == 0 || lines[idx-1].IsEmpty
+
+	consecutiveBlanksAfter := 0
+	for i := idx + 1; i < len(lines); i++ {
+		if lines[i].IsEmpty {
+			consecutiveBlanksAfter++
+		} else {
+			break
+		}
+	}
+
+	if consecutiveBlanksAfter >= 2 {
+		return false
+	}
+
+	if hasBlankBefore && hasBlankAfter && hasContentAfter {
+		return true
+	}
+
+	return false
+}
+
+func isOnlyDigits(text string) bool {
+	for _, r := range text {
+		if !unicode.IsDigit(r) && r != ' ' && r != '.' {
+			return false
+		}
+	}
+	return len(text) <= 5
+}
+
+func isCommandLine(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if len(trimmed) == 0 {
+		return false
+	}
+
+	commandPrefixes := []string{
+		"txt2md ", "git ", "npm ", "go ", "python ", "pip ",
+		"docker ", "curl ", "wget ", "make ", "cargo ",
+		"brew ", "apt ", "yum ", "sudo ", "chmod ",
+		"mv ", "cp ", "rm ", "ls ", "cat ", "echo ",
+		"export ", "source ", "cd ",
+	}
+	for _, prefix := range commandPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+
+	if strings.Contains(trimmed, " --") || strings.Contains(trimmed, " -") {
+		if strings.Contains(trimmed, "=") || strings.Count(trimmed, " ") >= 2 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isPartOfParagraph(lines []scanner.Line, idx int) bool {
+	if idx > 0 && !lines[idx-1].IsEmpty {
+		prevText := strings.TrimSpace(lines[idx-1].Raw)
+		if prevText != "" && !endsWithPunctuation(prevText) {
+			return true
+		}
+	}
+	return false
+}
+
+func isStepPattern(text string) bool {
+	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, "step ") {
+		rest := lower[5:]
+		dotIdx := strings.Index(rest, ":")
+		if dotIdx > 0 && dotIdx <= 3 {
+			beforeColon := rest[:dotIdx]
+			allDigit := true
+			for _, c := range beforeColon {
+				if !unicode.IsDigit(c) {
+					allDigit = false
+					break
+				}
+			}
+			if allDigit {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func determineContextualHeadingLevel(text string, indent int) int {
+	if indent > 0 {
+		level := 3 + indent/4
+		if level > 6 {
+			level = 6
+		}
+		return level
+	}
+	if len(text) <= 20 {
+		return 2
+	}
+	return 3
 }
 
 func isLikelyCodeComment(text string, lines []scanner.Line, idx int) bool {
@@ -144,6 +337,34 @@ func isInCodeContext(lines []scanner.Line, idx int) bool {
 	}
 
 	return codeLines >= 2
+}
+
+func isNearCodeContent(lines []scanner.Line, idx int) bool {
+	for i := 1; i <= 3; i++ {
+		if idx+i < len(lines) {
+			next := lines[idx+i]
+			nextText := strings.TrimSpace(next.Raw)
+			if nextText != "" && !next.IsEmpty {
+				if looksLikeCode(nextText) || looksLikeShellCommand(nextText) {
+					return true
+				}
+				break
+			}
+		}
+	}
+	for i := 1; i <= 2; i++ {
+		if idx-i >= 0 {
+			prev := lines[idx-i]
+			prevText := strings.TrimSpace(prev.Raw)
+			if prevText != "" && !prev.IsEmpty {
+				if looksLikeCode(prevText) || looksLikeShellCommand(prevText) {
+					return true
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 func hasStrongCodeIndicators(text string) bool {
